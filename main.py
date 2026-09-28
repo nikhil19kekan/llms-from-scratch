@@ -7,16 +7,27 @@ import json
 from core.jev_basic import Jev
 import asyncio
 from agents.SiteReliabilityEngineer.incident import Incident
-from agents.SiteReliabilityEngineer.agent import SreAgent
+from core.agent import Agent
+from agents.SiteReliabilityEngineer.sre_tools import registry
+from utils.utils import load_data
+
 load_dotenv()
 
 MODEL = os.environ["LLM_MODEL"]
+_INCIDENTS_DATA_PATH = os.path.join(os.path.dirname(__file__), "./agents/SiteReliabilityEngineer/data/incidents.json")
 
 
 def main():
-    sreAgent:SreAgent = SreAgent()
-    sreAgent.queueIncident(Incident("the app is behaving flaky today",1,1))
-    sreAgent.triage()
+    sreAgent:Agent = Agent(
+        systemPrompt="You are an SRE triaging ONE incident: find the problem, its root cause, and the fix. You only diagnose and report, you cannot apply changes. Logs are the source of truth. You work within a limited token budget: investigate directly, keep each reasoning note to one or two sentences, never repeat a call with the same arguments, and never ask the human. As soon as you know the problem, root cause, and fix, call sendMessage ONCE with a concise triage and call stop in the same turn.",
+        maxTokens=10000,
+        registry=registry
+    )
+    incs:list[Incident] = [Incident.from_dict(i) for i in load_data(_INCIDENTS_DATA_PATH)["incidents"]]
+    # for inc in incs:
+    sreAgent.enqueue(incs[0])
+    sreAgent.loop()
+
     # question="tell an interesting fact in 10 words"
     # llm:Llm=Llm(question)
 

@@ -1,88 +1,52 @@
 from pydantic import BaseModel
 from tools.Tool import Tool
+from tools.ToolRegistry import ToolRegistry
 from datetime import datetime
+from utils.utils import load_data
 
+import os
+import json
+
+_SRE_DATA_PATH = os.path.join(os.path.dirname(__file__), "data", "sre_data.json")
 
 class CheckDeploymentsArgs(BaseModel):
      app_id: int
-
-
 class GetRunBookArgs(BaseModel):
-     pass
-
-
+     query: str
 class SendMessageArgs(BaseModel):
      message: str
-
-
 class ReadLogsArgs(BaseModel):
      app_id: int
      timestamp: str
 
-
-class StopArgs(BaseModel):
-     pass
-
-
 class Sre:
-     def getRunBook():
-          return[
-               {
-                    "description":"when any instance of a service is down",
-                    "resolution":"then scale the service to zeero then scale service to original number of instances this brings all instances up"
-               }
-          ]
+     def getRunBook(query:str):
+          runbook = load_data(_SRE_DATA_PATH)["runbook"]
+          terms = [w for w in query.lower().split() if len(w) > 3]
+          scored = []
+          for entry in runbook:
+               text = entry["description"].lower()
+               score = sum(1 for t in terms if t in text)
+               if score:
+                    scored.append((score, entry))
+          scored.sort(key=lambda pair: pair[0], reverse=True)
+          return [entry for _, entry in scored[:2]]
+     
      def checkDeployments(app_id:int):
-          return[
-               {
-                    "id":1,
-                    "instances":5,
-                    "down":0,
-                    "qps":15000,
-                    "qpsthreshold":12000,
-                    "fps":300,
-                    "fpsthreshold":200
-               }
-          ]
+          return load_data(_SRE_DATA_PATH)["deployments"].get(str(app_id), [])
+     
      def sendMessage(message:str):
           print("Message to Humans:",message)
 
      def readLogs(app_id:int, timestamp:str):
-          lst={
-               1:[
-                    {
-                         "timestamp":"2026-09-25 12:00:00",
-                         "log":"system fetch user details and failed error happened connection pool exhausted"
-                    },
-                    {
-                         "timestamp":"2026-09-25 12:00:10",
-                         "log":"system retried and fetch user details successfully"
-                    },
-                    {
-                         "timestamp":"2026-09-25 12:00:20",
-                         "log":"performed business logic, could not write to database"
-                    },
-                    {
-                         "timestamp":"2026-09-25 12:00:30",
-                         "log":"performing retry to write into databse"
-                    },
-                    {
-                         "timestamp":"2026-09-25 12:00:40",
-                         "log":"write to database failed"
-                    },
-                    {
-                         "timestamp":"2026-09-25 12:00:50",
-                         "log":"too many requests exiting"
-                    }
-               ]
-          }
+          lst={int(k): v for k, v in load_data(_SRE_DATA_PATH)["logs"].items()}
           lst[app_id].sort(key=lambda entry:entry["timestamp"])
           for i, item in enumerate(lst[app_id]):
                if datetime.strptime(item["timestamp"],"%Y-%m-%d %H:%M:%S") < datetime.strptime(timestamp,"%Y-%m-%d %H:%M:%S"):
                     continue
                else:
                     if datetime.strptime(item["timestamp"],"%Y-%m-%d %H:%M:%S") == datetime.strptime(timestamp,"%Y-%m-%d %H:%M:%S"):
-                         return item["timestamp"]
+                         return item["log"]
                     break
           if i-1>=0: 
                return lst[app_id][i-1]["log"]
@@ -94,47 +58,42 @@ class Sre:
                     name="checkDeployments",
                     description="this tool is to check deployment details for an application using application id calling this tool with application id will give snapshot of health of each deployed component for that respective application. use this tool to know about deployment for an app using its id",
                     args_schema=CheckDeploymentsArgs,
+                    isReadOnly=True,
                     func=Sre.checkDeployments
                     )
                self.getRunBookTool:Tool=Tool(
                     name="getRunbook",
-                    description="this function gets the runbook for issues resolution. runbook  basically is a record of known incidents and what needs to be done when such issues occur. following runbook steps for exact same issue resolves the issue, remember runbook does not give you answer to all possible issue it is only list of known issues for which remediation is recorded",
+                    description="Searches the runbook (a record of known incidents and their remediation) and returns only the entries matching your query. Pass a short query of the key symptom or root-cause keywords you saw in the logs or metrics (e.g. 'connection pool exhausted', 'memory leak after deploy', 'cache stampede', 'disk pressure'). Returns up to 2 best-matching entries, or an empty list if nothing matches (broaden or change your keywords). The runbook does not cover every possible issue.",
                     args_schema=GetRunBookArgs,
+                    isReadOnly=True,
                     func=Sre.getRunBook
                )
                self.sendMessageTool:Tool=Tool(
                     name="sendMessage",
-                    description="this tool is to send message over human teams channel this tool is importatnt to let human know something. use this tool to send final triage information, do not use this tool to seek help from human, do not use this just to know something intermediary",
+                    description="Delivers your ONE final triage to humans (problem, root cause, recommended fix). Use it EXACTLY ONCE, only when your investigation is complete and you are confident. Do NOT use it for progress updates, partial findings, intermediate summaries, or to ask questions. Immediately after calling it, call stop in the same turn. If you are not yet ready to deliver the final triage, do not call this - keep investigating instead.",
                     args_schema=SendMessageArgs,
+                    isReadOnly=False,
                     func=Sre.sendMessage
                )
                self.readLogsTool:Tool=Tool(
                     name="readLogs",
-                    description='use this tool when you are not sure what happened or have no clue why this incident was raised, to read logs based on timestamp you provided for service whose service id you provide, these logs would help you know what actually happened in the service at a point in time, you can provide single timestamp which will fetch you lines for that exact timestamp, or if the exact timestamp entry does not exsist then it will give you an entries which is immediately before provided timestamp.remember you can only fethc logs one entry at a time, timestamp should be in format "%Y-%m-%d %H:%M:%S"',
+                    description='Reads what actually happened in a service at a point in time. ALWAYS read the relevant logs here before concluding a root cause - do not conclude from deployment metrics alone, the logs are the source of truth. Provide the service id (app_id) and a timestamp; it returns the log entry at that exact timestamp, or the nearest one immediately before it if that exact timestamp has no entry. It returns ONE entry per call, so step forward through time (start from the deployment unhealthy_since and advance) to follow the incident. Timestamp format must be "%Y-%m-%d %H:%M:%S".',
                     args_schema=ReadLogsArgs,
+                    isReadOnly=True,
                     func=Sre.readLogs
-               )
-               self.stop:Tool = Tool(
-                    name="stop",
-                    description="this tool is to indicate that the work is done, know that this tool is to be called only and only when you have finished the job and have achieved the goal specified",
-                    args_schema=StopArgs,
-                    func=None
                )
           def _allTools(self):
                return [
                     self.checkDeploymentsTool,
                     self.getRunBookTool,
                     self.sendMessageTool,
-                    self.readLogsTool,
-                    self.stop,
+                    self.readLogsTool
                ]
 
-          def getToolsForLiteLlm(self):
-               return [{"type": "function", "function": tool.schema()} for tool in self._allTools()]
+          def toRegistry(self):
+               registry = ToolRegistry()
+               for tool in self._allTools():
+                    registry.register(tool)
+               return registry
 
-          def getToolMap(self):
-               return {tool.name: tool for tool in self._allTools()}
-
-_sreTools=Sre.SreTools()
-tools=_sreTools.getToolsForLiteLlm()
-tool_map=_sreTools.getToolMap()
+registry=Sre.SreTools().toRegistry()

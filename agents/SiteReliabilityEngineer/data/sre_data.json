@@ -1,0 +1,415 @@
+{
+  "runbook": [
+    {
+      "description": "when one or more instances of a deployment are down (the 'down' count is greater than zero)",
+      "resolution": "scale the affected deployment to zero replicas then scale it back to its original instance count, this forces the scheduler to reschedule pods and bring all instances up cleanly on healthy nodes"
+    },
+    {
+      "description": "when service logs show 'connection pool exhausted' or 'no available connections' to a database",
+      "resolution": "increase the database connection pool size (maxPoolSize) for that service in its config map, roll-restart the affected instances so they pick up the new pool size, then confirm pool utilisation stays below 80 percent under load"
+    },
+    {
+      "description": "when a deployment qps is above its qpsthreshold, meaning the service is receiving more traffic than it is provisioned for",
+      "resolution": "enable request rate limiting at the ingress or api gateway for that service and trigger horizontal autoscaling to add replicas until qps-per-instance falls back below the threshold"
+    },
+    {
+      "description": "when a deployment fps (failures per second) is above its fpsthreshold",
+      "resolution": "identify the immediate downstream dependency named in the service logs (database or upstream api), if that dependency is unhealthy open a circuit breaker to shed load and protect it while it recovers, then remediate the dependency"
+    },
+    {
+      "description": "when logs show repeated database write failures or write timeouts that persist after automatic retries",
+      "resolution": "confirm the database is accepting writes and is not in read-only or failover state, if the database is healthy increase the write timeout and connection pool for the service, if the database itself is degraded escalate to the database on-call team"
+    },
+    {
+      "description": "when instances are OOMKilled (killed for exceeding their memory limit) due to backlogged request buffers under load",
+      "resolution": "treat OOMKills as a symptom of upstream overload, first relieve the load (rate limit and fix the root dependency), only if memory pressure persists after load is normal should you raise the deployment memory limit and restart it"
+    },
+    {
+      "description": "when a service reports a circuit breaker in the OPEN state for a dependency",
+      "resolution": "leave the breaker open until the dependency recovers (it protects the dependency from a thundering herd), fix the underlying dependency, then let the breaker half-open and close automatically as success rate recovers"
+    },
+    {
+      "description": "when instances fail readiness probes due to node disk pressure (node reporting DiskPressure)",
+      "resolution": "cordon and drain the affected node so pods reschedule onto healthy nodes, then reclaim disk on the bad node by clearing evicted pods, old container images and logs before uncordoning it"
+    },
+    {
+      "description": "when a service starts degrading immediately after a new version was deployed, especially memory climbing steadily with no change in traffic (a regression)",
+      "resolution": "roll back the deployment to the previous known-good version to restore service quickly, then reproduce and debug the regression in a non-production environment before re-releasing"
+    },
+    {
+      "description": "when the failing dependency is an EXTERNAL third-party service and its own status page confirms an outage (the internal service is otherwise healthy)",
+      "resolution": "do not attempt an internal code fix, keep the circuit breaker open, queue and retry the affected work where possible, and escalate to the vendor while monitoring their status page for recovery"
+    },
+    {
+      "description": "when a cache outage (redis or memcached unreachable) causes a stampede of traffic onto the database, seen as cache hit ratio dropping to near zero and database qps spiking",
+      "resolution": "restore or fail over the cache, temporarily rate-limit or shed read traffic to protect the overloaded database, then warm the cache back up before removing the rate limit"
+    }
+  ],
+  "deployments": {
+    "1": [
+      {
+        "id": 1,
+        "name": "payments-api",
+        "status": "degraded",
+        "version": "v2.14.3",
+        "region": "us-east-1",
+        "cluster": "prod-use1-a",
+        "instances": 5,
+        "down": 2,
+        "qps": 15000,
+        "qpsthreshold": 12000,
+        "fps": 300,
+        "fpsthreshold": 200,
+        "cpu_pct": 94,
+        "mem_pct": 99,
+        "latency_p50_ms": 850,
+        "latency_p99_ms": 4200,
+        "error_rate_pct": 12.4,
+        "primary_dependency": "payments-primary (postgres)",
+        "unhealthy_since": "2026-09-25 12:00:00"
+      },
+      {
+        "id": 2,
+        "name": "payments-worker",
+        "status": "healthy",
+        "version": "v2.14.3",
+        "region": "us-east-1",
+        "cluster": "prod-use1-a",
+        "instances": 3,
+        "down": 0,
+        "qps": 4000,
+        "qpsthreshold": 8000,
+        "fps": 20,
+        "fpsthreshold": 150,
+        "cpu_pct": 41,
+        "mem_pct": 55,
+        "latency_p50_ms": 120,
+        "latency_p99_ms": 480,
+        "error_rate_pct": 0.3,
+        "primary_dependency": "payments-primary (postgres)",
+        "unhealthy_since": null
+      },
+      {
+        "id": 5,
+        "name": "payments-gateway",
+        "status": "warning",
+        "version": "v1.9.0",
+        "region": "us-east-1",
+        "cluster": "prod-use1-a",
+        "instances": 4,
+        "down": 0,
+        "qps": 15200,
+        "qpsthreshold": 16000,
+        "fps": 45,
+        "fpsthreshold": 100,
+        "cpu_pct": 72,
+        "mem_pct": 63,
+        "latency_p50_ms": 60,
+        "latency_p99_ms": 1900,
+        "error_rate_pct": 3.1,
+        "primary_dependency": "payments-api",
+        "unhealthy_since": null
+      }
+    ],
+    "2": [
+      {
+        "id": 3,
+        "name": "auth-service",
+        "status": "healthy",
+        "version": "v4.2.1",
+        "region": "us-east-1",
+        "cluster": "prod-use1-a",
+        "instances": 4,
+        "down": 0,
+        "qps": 2000,
+        "qpsthreshold": 5000,
+        "fps": 10,
+        "fpsthreshold": 100,
+        "cpu_pct": 38,
+        "mem_pct": 44,
+        "latency_p50_ms": 25,
+        "latency_p99_ms": 90,
+        "error_rate_pct": 0.1,
+        "primary_dependency": "auth-db (postgres)",
+        "unhealthy_since": null
+      }
+    ],
+    "3": [
+      {
+        "id": 4,
+        "name": "search-service",
+        "status": "degraded",
+        "version": "v3.0.7",
+        "region": "us-west-2",
+        "cluster": "prod-usw2-b",
+        "instances": 2,
+        "down": 1,
+        "qps": 900,
+        "qpsthreshold": 1000,
+        "fps": 5,
+        "fpsthreshold": 50,
+        "cpu_pct": 66,
+        "mem_pct": 71,
+        "latency_p50_ms": 140,
+        "latency_p99_ms": 2200,
+        "error_rate_pct": 1.2,
+        "primary_dependency": "elasticsearch-cluster",
+        "unhealthy_since": "2026-09-25 11:58:00"
+      }
+    ],
+    "4": [
+      {
+        "id": 6,
+        "name": "orders-api",
+        "status": "degraded",
+        "version": "v3.1.0",
+        "previous_version": "v3.0.9",
+        "region": "eu-west-1",
+        "cluster": "prod-euw1-a",
+        "instances": 6,
+        "down": 3,
+        "qps": 3000,
+        "qpsthreshold": 6000,
+        "fps": 80,
+        "fpsthreshold": 60,
+        "cpu_pct": 70,
+        "mem_pct": 98,
+        "latency_p50_ms": 400,
+        "latency_p99_ms": 3000,
+        "error_rate_pct": 8.1,
+        "primary_dependency": "orders-db (postgres)",
+        "last_deploy_at": "2026-09-25 09:00:00",
+        "unhealthy_since": "2026-09-25 09:15:00"
+      }
+    ],
+    "5": [
+      {
+        "id": 7,
+        "name": "notifications-api",
+        "status": "degraded",
+        "version": "v1.4.2",
+        "region": "us-east-1",
+        "cluster": "prod-use1-a",
+        "instances": 3,
+        "down": 0,
+        "qps": 1200,
+        "qpsthreshold": 4000,
+        "fps": 220,
+        "fpsthreshold": 80,
+        "cpu_pct": 35,
+        "mem_pct": 48,
+        "latency_p50_ms": 300,
+        "latency_p99_ms": 8000,
+        "error_rate_pct": 34.0,
+        "primary_dependency": "sendgrid-email-api (external third-party)",
+        "unhealthy_since": "2026-09-25 14:20:00"
+      }
+    ],
+    "6": [
+      {
+        "id": 8,
+        "name": "inventory-api",
+        "status": "degraded",
+        "version": "v2.2.0",
+        "region": "ap-south-1",
+        "cluster": "prod-aps1-a",
+        "instances": 4,
+        "down": 0,
+        "qps": 5000,
+        "qpsthreshold": 9000,
+        "fps": 150,
+        "fpsthreshold": 90,
+        "cpu_pct": 88,
+        "mem_pct": 60,
+        "latency_p50_ms": 700,
+        "latency_p99_ms": 5200,
+        "error_rate_pct": 6.0,
+        "primary_dependency": "inventory-db (mysql)",
+        "cache": "inventory-redis",
+        "unhealthy_since": "2026-09-25 16:40:00"
+      }
+    ]
+  },
+  "logs": {
+    "1": [
+      {
+        "timestamp": "2026-09-25 11:58:30",
+        "log": "level=INFO service=payments-api pod=payments-api-7d9f8-abc12 msg=healthy, db_pool=payments-primary util=52% active=26/50 qps=9800 p99=170ms"
+      },
+      {
+        "timestamp": "2026-09-25 11:59:30",
+        "log": "level=INFO service=payments-api pod=payments-api-7d9f8-abc12 msg=nominal, db_pool util=61% active=31/50 qps=10500 p99=185ms error_rate=0.2%"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:00",
+        "log": "level=WARN service=payments-api msg=incoming traffic surge, qps=15000 exceeded provisioned threshold=12000, hpa (autoscaler) evaluating scale-up"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:05",
+        "log": "level=ERROR service=payments-api pod=payments-api-7d9f8-abc12 trace_id=a1f3c9 endpoint=GET /v2/users/{id} msg=failed to fetch user details err=connection pool exhausted db_pool=payments-primary(max=50 active=50 idle=0 waiters=214)"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:10",
+        "log": "level=WARN service=payments-api msg=latency degradation p50=850ms p99=4200ms inbound_queue_depth=1200 and rising, threads blocked awaiting db connection"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:15",
+        "log": "level=INFO service=payments-api trace_id=a1f3c9 msg=retry succeeded after 380ms once a db connection was freed from the pool"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:20",
+        "log": "level=ERROR service=payments-api pod=payments-api-7d9f8-xyz34 trace_id=b7e211 endpoint=POST /v2/payments txn_id=txn_5591 msg=could not write payment record err=write timed out (SQLSTATE 57014) waiting for a pool connection to payments-primary"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:30",
+        "log": "level=WARN service=payments-api trace_id=b7e211 txn_id=txn_5591 msg=retrying database write attempt=2/3 backoff=250ms"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:40",
+        "log": "level=ERROR service=payments-api trace_id=b7e211 txn_id=txn_5591 msg=database write failed attempt=3/3 err=connection pool exhausted while acquiring write connection, giving up, returning HTTP 500"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:50",
+        "log": "level=ERROR service=payments-api msg=too many in-flight requests, load shedding enabled, returning HTTP 503 to callers, error_rate=12.4% rejected=4300/min"
+      },
+      {
+        "timestamp": "2026-09-25 12:01:00",
+        "log": "level=WARN service=payments-api msg=circuit breaker state=OPEN dependency=payments-primary reason=50 consecutive write failures, calls will fast-fail for 30s"
+      },
+      {
+        "timestamp": "2026-09-25 12:01:10",
+        "log": "level=ERROR service=payments-api pod=payments-api-7d9f8-abc12 msg=OOMKilled, memory 2048Mi/2048Mi exceeded due to backlogged request buffers, kubelet restarting pod"
+      },
+      {
+        "timestamp": "2026-09-25 12:01:12",
+        "log": "level=ERROR service=payments-api pod=payments-api-7d9f8-xyz34 msg=OOMKilled, memory limit reached, kubelet restarting pod, deployment now at 3/5 ready"
+      },
+      {
+        "timestamp": "2026-09-25 12:01:30",
+        "log": "level=WARN service=payments-api msg=3/5 instances ready, db_pool util=100% active=50/50 waiters=180 qps=14200 still above threshold"
+      },
+      {
+        "timestamp": "2026-09-25 12:02:00",
+        "log": "level=INFO service=payments-api msg=hpa scaled deployment 5->8 replicas, new pods warming up, connection pool still the bottleneck (maxPoolSize=50 unchanged)"
+      },
+      {
+        "timestamp": "2026-09-25 12:03:00",
+        "log": "level=INFO service=payments-api msg=partial recovery, db_pool util=88% error_rate=4.0% p99=1400ms, breaker half-open"
+      },
+      {
+        "timestamp": "2026-09-25 12:04:30",
+        "log": "level=INFO service=payments-api msg=mostly recovered, error_rate=0.5% p99=320ms breaker=CLOSED, pool still tight at 82% util under current traffic"
+      }
+    ],
+    "2": [
+      {
+        "timestamp": "2026-09-25 12:00:00",
+        "log": "level=INFO service=auth-service msg=healthy, token issuance nominal, error_rate=0.1% p99=90ms"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:30",
+        "log": "level=INFO service=auth-service msg=slight increase in login latency p99=110ms, well within normal range, no action needed"
+      }
+    ],
+    "3": [
+      {
+        "timestamp": "2026-09-25 11:58:00",
+        "log": "level=WARN service=search-service pod=search-service-55c7d-qq81 node=ip-10-2-4-118 msg=readiness probe failing, node reporting DiskPressure (disk 92% full)"
+      },
+      {
+        "timestamp": "2026-09-25 11:59:00",
+        "log": "level=WARN service=search-service msg=degraded, serving queries from 1/2 healthy instances, p99=2200ms, elasticsearch-cluster reachable"
+      },
+      {
+        "timestamp": "2026-09-25 12:00:00",
+        "log": "level=INFO service=search-service msg=no new errors, awaiting node disk cleanup, still 1 instance down"
+      }
+    ],
+    "4": [
+      {
+        "timestamp": "2026-09-25 08:55:00",
+        "log": "level=INFO service=orders-api version=v3.0.9 msg=healthy, mem=45% qps=3000 error_rate=0.2% p99=380ms"
+      },
+      {
+        "timestamp": "2026-09-25 09:00:00",
+        "log": "level=INFO service=orders-api msg=deployment rollout complete, version v3.0.9 -> v3.1.0, all 6 replicas updated"
+      },
+      {
+        "timestamp": "2026-09-25 09:05:00",
+        "log": "level=INFO service=orders-api version=v3.1.0 msg=post-deploy healthy, mem=58% qps=3000 (traffic unchanged)"
+      },
+      {
+        "timestamp": "2026-09-25 09:15:00",
+        "log": "level=WARN service=orders-api version=v3.1.0 msg=memory climbing steadily since v3.1.0 rollout, mem=85% while qps flat at 3000, suspected leak"
+      },
+      {
+        "timestamp": "2026-09-25 09:30:00",
+        "log": "level=ERROR service=orders-api pod=orders-api-6b4c2-k91 msg=OOMKilled mem=4096Mi/4096Mi, kubelet restarting pod"
+      },
+      {
+        "timestamp": "2026-09-25 09:45:00",
+        "log": "level=ERROR service=orders-api pod=orders-api-6b4c2-p32 msg=OOMKilled again, pattern is one OOMKill roughly every 15 minutes after each restart"
+      },
+      {
+        "timestamp": "2026-09-25 10:00:00",
+        "log": "level=WARN service=orders-api msg=heap dump analysis shows unbounded growth in OrderCache (entries never evicted), code path introduced in v3.1.0"
+      },
+      {
+        "timestamp": "2026-09-25 10:15:00",
+        "log": "level=ERROR service=orders-api msg=3/6 instances crashlooping (CrashLoopBackOff after repeated OOMKill), error_rate=8.1% on order creation"
+      }
+    ],
+    "5": [
+      {
+        "timestamp": "2026-09-25 14:15:00",
+        "log": "level=INFO service=notifications-api msg=healthy, email delivery nominal, error_rate=0.2% p99=280ms"
+      },
+      {
+        "timestamp": "2026-09-25 14:20:00",
+        "log": "level=ERROR service=notifications-api msg=calls to sendgrid-email-api timing out after 10s err=upstream returned HTTP 503 Service Unavailable"
+      },
+      {
+        "timestamp": "2026-09-25 14:25:00",
+        "log": "level=WARN service=notifications-api msg=retry queue backing up, 12000 emails queued, fps=220 above threshold=80, our own cpu/mem normal"
+      },
+      {
+        "timestamp": "2026-09-25 14:30:00",
+        "log": "level=WARN service=notifications-api msg=circuit breaker state=OPEN dependency=sendgrid-email-api after 200 consecutive upstream failures"
+      },
+      {
+        "timestamp": "2026-09-25 14:35:00",
+        "log": "level=INFO service=notifications-api msg=sendgrid public status page reports a MAJOR OUTAGE on their side, our service is otherwise healthy"
+      },
+      {
+        "timestamp": "2026-09-25 14:45:00",
+        "log": "level=INFO service=notifications-api msg=queuing notifications for delayed delivery, breaker remains open, awaiting vendor recovery"
+      }
+    ],
+    "6": [
+      {
+        "timestamp": "2026-09-25 16:35:00",
+        "log": "level=INFO service=inventory-api msg=healthy, cache=inventory-redis hit_ratio=96% db_qps=200 p99=180ms"
+      },
+      {
+        "timestamp": "2026-09-25 16:40:00",
+        "log": "level=ERROR service=inventory-api msg=connection refused to inventory-redis, all reads now falling through to inventory-db"
+      },
+      {
+        "timestamp": "2026-09-25 16:42:00",
+        "log": "level=WARN service=inventory-api msg=cache hit_ratio dropped to 0%, inventory-db qps spiked 200 -> 4800 (cache stampede), db cpu climbing"
+      },
+      {
+        "timestamp": "2026-09-25 16:45:00",
+        "log": "level=ERROR service=inventory-api msg=inventory-db cpu=97% slow queries piling up, p99=5200ms error_rate=6.0%"
+      },
+      {
+        "timestamp": "2026-09-25 16:50:00",
+        "log": "level=WARN service=inventory-api msg=inventory-redis pod in CrashLoopBackOff (OOM on the redis node), cache still unavailable"
+      },
+      {
+        "timestamp": "2026-09-25 17:00:00",
+        "log": "level=ERROR service=inventory-api msg=some inventory reads timing out against the overloaded inventory-db, customers seeing slow/failed inventory lookups"
+      }
+    ]
+  }
+}

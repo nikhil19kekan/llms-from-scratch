@@ -19,6 +19,7 @@ class Llm:
         self.system=system
         self.tools=tools
         self.context=[]
+        self.tokens_used=0
         if system:
             self.context.append({"role": "system", "content": system})
 
@@ -31,6 +32,12 @@ class Llm:
     def add_tool_result(self, tool_call_id, content):
         self.context.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
 
+    def reset(self):
+        self.context = []
+        self.tokens_used = 0
+        if self.system:
+            self.context.append({"role": "system", "content": self.system})
+
 
     def ask(self, **options):
         response = completion(
@@ -41,6 +48,8 @@ class Llm:
             reasoning_effort='low',
             **options,
         )
+        if response.usage:
+            self.tokens_used += response.usage.total_tokens
         return response.choices[0].message
 
 

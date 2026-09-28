@@ -1,0 +1,58 @@
+{
+  "incidents": [
+    {
+      "id": "INC-1001",
+      "app_id": 1,
+      "deployment_id": 1,
+      "severity": "SEV1",
+      "raised_at": "2026-09-25 12:02:00",
+      "source": "pagerduty (error-rate alert)",
+      "description": "payments are flaky, customers are reporting failed transactions and timeouts on checkout"
+    },
+    {
+      "id": "INC-1002",
+      "app_id": 4,
+      "deployment_id": 6,
+      "severity": "SEV2",
+      "raised_at": "2026-09-25 09:35:00",
+      "source": "kubernetes alert (pods restarting)",
+      "description": "orders-service pods keep restarting and some order submissions are failing"
+    },
+    {
+      "id": "INC-1003",
+      "app_id": 5,
+      "deployment_id": 7,
+      "severity": "SEV2",
+      "raised_at": "2026-09-25 14:32:00",
+      "source": "customer support tickets",
+      "description": "customers say they are not receiving email notifications (password resets, receipts)"
+    },
+    {
+      "id": "INC-1004",
+      "app_id": 6,
+      "deployment_id": 8,
+      "severity": "SEV2",
+      "raised_at": "2026-09-25 16:48:00",
+      "source": "grafana latency alert",
+      "description": "inventory pages are loading slowly and sometimes erroring for customers"
+    },
+    {
+      "id": "INC-1005",
+      "app_id": 3,
+      "deployment_id": 4,
+      "severity": "SEV3",
+      "raised_at": "2026-09-25 11:59:30",
+      "source": "internal monitoring",
+      "description": "search results are slow for some users"
+    },
+    {
+      "id": "INC-1006",
+      "app_id": 2,
+      "deployment_id": 3,
+      "severity": "SEV4",
+      "raised_at": "2026-09-25 12:05:00",
+      "source": "customer report (single user)",
+      "description": "a user reported a one-off slow login on the auth service"
+    }
+  ]
+}
